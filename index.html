@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>家庭 KTV — 電視端</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; font-family: "PingFang TC", "STHeiti", sans-serif; }
+  #stage { position: fixed; inset: 0; }
+  video { width: 100%; height: 100%; object-fit: contain; }
+  #idle { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #fff; gap: 14px; }
+  #idle h1 { font-size: 42px; font-weight: 800; margin: 0; letter-spacing: 4px; }
+  #idle p { font-size: 20px; opacity: .6; margin: 0; }
+  #lyrics { position: absolute; left: 0; right: 0; bottom: 0; height: 40%; pointer-events: none; }
+  .ly { position: absolute; left: 0; right: 0; display: none; text-align: center; font-weight: 800; line-height: 1.35;
+        color: #fff; text-shadow: 0 2px 8px rgba(0,0,0,.95), 0 0 3px #000; }
+  .ly.cur { display: block; top: 48%; font-size: 52px; }
+  .ly.nxt { display: block; top: 70%; font-size: 32px; opacity: .62; font-weight: 600; }
+  .ly .fill { position: absolute; left: 0; right: 0; top: 0; color: #ffd94a;
+        clip-path: inset(0 calc(100% - var(--p, 0) * 100%) 0 0); }
+  .ly .base { position: relative; }
+  @media (orientation: landscape) { .ly.cur { font-size: 58px; } .ly.nxt { font-size: 34px; } }
+</style>
+</head>
+<body>
+<div id="stage">
+  <video id="mv" playsinline muted></video>
+  <div id="lyrics"></div>
+  <div id="idle"><h1>家庭 KTV</h1><p>從 iPad 選歌，按「播放到電視」</p></div>
+</div>
+<audio id="karaoke" preload="auto"></audio>
+<audio id="guide" preload="auto" muted></audio>
+
+<script src="//www.gstatic.com/cast/sdk/libs/receiver/2.0.0/cast_receiver.js"></script>
+<script>
+(function () {
+  const NS = 'urn:x-cast:com.chrisp.karaoke';
+  const mv = document.getElementById('mv');
+  const karaoke = document.getElementById('karaoke');
+  const guide = document.getElementById('guide');
+  const lyricsEl = document.getElementById('lyrics');
+  const idle = document.getElementById('idle');
+
+  let state = { lines: [], lastIndex: -2, playing: false, songId: null };
+  let bus = null;
+
+  function esc(s) { return String(s || '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+  function renderLyrics(lines) {
+    state.lines = lines || [];
+    lyricsEl.innerHTML = state.lines.map((l, i) => {
+      const text = l.text ? esc(l.text) : '♪ 間奏 ♪';
+      return `<div class="ly" data-i="${i}" data-t="${l.t ?? ''}"><span class="base">${text}</span><span class="fill" aria-hidden="true">${text}</span></div>`;
+    }).join('');
+    state.lastIndex = -2;
+  }
+
+  function tick() {
+    if (!state.lines.length) { requestAnimationFrame(tick); return; }
+    const t = karaoke.currentTime || 0;
+    let idx = -1;
+    for (let i = 0; i < state.lines.length; i++) {
+      if ((state.lines[i].t ?? -1) <= t) idx = i; else break;
+    }
+    const els = lyricsEl.children;
+    if (idx !== state.lastIndex) {
+      state.lastIndex = idx;
+      for (let i = 0; i < els.length; i++) {
+        els[i].className = 'ly' + (i === idx ? ' cur' : (i === idx + 1 ? ' nxt' : ''));
+      }
+    }
+    if (idx >= 0 && els[idx]) {
+      const line = state.lines[idx];
+      const start = line.t;
+      const nextT = idx + 1 < state.lines.length ? state.lines[idx + 1].t : null;
+      const chars = (line.text || '').replace(/\s/g, '').length || 4;
+      const est = Math.max(1.8, chars * 0.3);
+      const gap = nextT != null ? nextT - start : est;
+      const dur = Math.max(1.2, Math.min(gap, est * 1.15));
+      els[idx].style.setProperty('--p', Math.max(0, Math.min(1, (t - start) / dur)).toFixed(3));
+    }
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+
+  function send(payload) {
+    try { if (bus) bus.send(payload); } catch (e) {}
+  }
+
+  function playAll() {
+    const position = karaoke.currentTime || 0;
+    [mv, karaoke, guide].forEach(el => { try { el.currentTime = position; } catch (e) {} });
+    mv.play().catch(() => {});
+    karaoke.play().catch(() => {});
+    if (!guide.muted && guide.src) guide.play().catch(() => {});
+    state.playing = true;
+  }
+
+  function load(payload) {
+    state.songId = payload.songId || null;
+    idle.style.display = 'none';
+    renderLyrics((payload.lyrics && payload.lyrics.lines) || []);
+    if (payload.video) mv.src = payload.video;
+    karaoke.src = payload.karaoke || '';
+    guide.src = payload.guide || '';
+    guide.volume = Math.max(0, Math.min(1, payload.guideVol ?? 0));
+    guide.muted = !payload.guide;
+    const position = Number(payload.position || 0);
+    const start = () => {
+      try { mv.currentTime = position; karaoke.currentTime = position; guide.currentTime = position; } catch (e) {}
+      if (payload.playing !== false) playAll();
+    };
+    if (karaoke.readyState >= 1) start(); else karaoke.addEventListener('loadedmetadata', start, { once: true });
+  }
+
+  function handle(payload) {
+    if (!payload || typeof payload !== 'object') return;
+    if (payload.type === 'load') return load(payload);
+    if (payload.type === 'cmd') {
+      if (payload.action === 'play') return playAll();
+      if (payload.action === 'pause') { [mv, karaoke, guide].forEach(e => e.pause()); state.playing = false; return; }
+      if (payload.action === 'seek') {
+        const t = Math.max(0, Number(payload.position || 0));
+        [mv, karaoke, guide].forEach(e => { try { e.currentTime = t; } catch (err) {} });
+        state.lastIndex = -2;
+        return;
+      }
+      if (payload.action === 'guide') { guide.volume = Math.max(0, Math.min(1, Number(payload.volume || 0))); return; }
+      if (payload.action === 'key') {
+        const t = karaoke.currentTime || 0;
+        const wasPlaying = !karaoke.paused;
+        karaoke.src = payload.karaoke;
+        guide.src = payload.guide || '';
+        const resume = () => {
+          try { karaoke.currentTime = t; guide.currentTime = t; } catch (e) {}
+          if (wasPlaying) { karaoke.play().catch(() => {}); if (guide.src && !guide.muted) guide.play().catch(() => {}); }
+        };
+        karaoke.addEventListener('loadedmetadata', resume, { once: true });
+        return;
+      }
+    }
+    if (payload.type === 'ping') send({ type: 'pong', songId: state.songId, position: karaoke.currentTime || 0 });
+  }
+
+  setInterval(() => {
+    send({ type: 'status', songId: state.songId,
+           position: Math.round((karaoke.currentTime || 0) * 100) / 100,
+           duration: karaoke.duration || 0, playing: !karaoke.paused });
+  }, 1000);
+
+  karaoke.addEventListener('ended', () => send({ type: 'ended', songId: state.songId }));
+  karaoke.addEventListener('error', () => send({ type: 'error', songId: state.songId, message: 'audio error' }));
+
+  try {
+    const receiver = cast.receiver.CastReceiverManager.getInstance();
+    bus = receiver.getCastMessageBus(NS, cast.receiver.CastMessageBus.MessageType.JSON);
+    bus.onMessage = e => handle(e.data);
+    receiver.start({ disableIdleTimeout: true, maxInactivity: 86400 });
+    send({ type: 'hello', ua: navigator.userAgent });
+  } catch (e) {
+    document.getElementById('idle').innerHTML = '<h1>接收器未註冊</h1><p>請從 Cast 開發者後台以 App ID 啟動</p>';
+  }
+})();
+</script>
+</body>
+</html>

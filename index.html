@@ -19,6 +19,9 @@
   .ly .fill { position: absolute; left: 0; right: 0; top: 0; color: #ffd94a;
         clip-path: inset(0 calc(100% - var(--p, 0) * 100%) 0 0); }
   .ly .base { position: relative; }
+  .ly .char { color: rgba(255,255,255,.96); }
+  .ly .char.done { color: #ffd94a; }
+  .ly .char.now { color: #fff3a0; text-shadow: 0 0 10px #ffd94a, 0 2px 6px rgba(0,0,0,.95); }
   @media (orientation: landscape) { .ly.cur { font-size: 58px; } .ly.nxt { font-size: 34px; } }
 </style>
 </head>
@@ -51,6 +54,10 @@
     state.lines = lines || [];
     lyricsEl.innerHTML = state.lines.map((l, i) => {
       const text = l.text ? esc(l.text) : '♪ 間奏 ♪';
+      if (Array.isArray(l.chars) && l.chars.length) {
+        const inner = l.chars.map(c => `<span class="char" data-start="${c.start}" data-end="${c.end}">${esc(c.char)}</span>`).join('');
+        return `<div class="ly" data-i="${i}" data-t="${l.t ?? ''}"><span class="charline">${inner}</span></div>`;
+      }
       return `<div class="ly" data-i="${i}" data-t="${l.t ?? ''}"><span class="base">${text}</span><span class="fill" aria-hidden="true">${text}</span></div>`;
     }).join('');
     state.lastIndex = -2;
@@ -72,6 +79,14 @@
     }
     if (idx >= 0 && els[idx]) {
       const line = state.lines[idx];
+      const charEls = els[idx].querySelectorAll('.char');
+      if (charEls.length) {
+        charEls.forEach(ch => {
+          const st = Number(ch.dataset.start), en = Number(ch.dataset.end);
+          ch.classList.toggle('done', t >= en);
+          ch.classList.toggle('now', t >= st && t < en);
+        });
+      }
       const start = line.t;
       const nextT = idx + 1 < state.lines.length ? state.lines[idx + 1].t : null;
       const chars = (line.text || '').replace(/\s/g, '').length || 4;

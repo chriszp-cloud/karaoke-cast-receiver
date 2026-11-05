@@ -26,6 +26,7 @@
 <div id="stage">
   <video id="mv" playsinline muted></video>
   <div id="lyrics"></div>
+  <div id="dbg" style="position:absolute;left:10px;bottom:8px;font:12px/1.4 monospace;color:rgba(255,255,255,.55);white-space:pre;pointer-events:none"></div>
   <div id="idle"><h1>家庭 KTV</h1><p>從 iPad 選歌，按「播放到電視」</p></div>
 </div>
 <audio id="karaoke" preload="auto"></audio>
@@ -147,6 +148,16 @@
            position: Math.round((karaoke.currentTime || 0) * 100) / 100,
            duration: karaoke.duration || 0, playing: !karaoke.paused });
   }, 1000);
+
+  function debugLine() {
+    const el = document.getElementById('dbg');
+    if (!el) return;
+    el.textContent = `a:${karaoke.readyState}/${karaoke.error ? karaoke.error.code : '-'} ` +
+      `v:${mv.readyState}/${mv.error ? mv.error.code : '-'} ` +
+      `g:${guide.readyState}/${guide.error ? guide.error.code : '-'} vol:${guide.volume.toFixed(2)} ` +
+      `t:${(karaoke.currentTime || 0).toFixed(1)} src:${(karaoke.currentSrc || '').split('?')[0].split('/').pop()}`;
+  }
+  setInterval(debugLine, 1000);
 
   karaoke.addEventListener('ended', () => send({ type: 'ended', songId: state.songId }));
   karaoke.addEventListener('error', () => send({ type: 'error', songId: state.songId, message: 'audio error' }));

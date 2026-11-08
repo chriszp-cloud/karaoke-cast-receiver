@@ -183,19 +183,31 @@
     state.title = payload.title || '';
     state.singer = payload.singer || '';
     state.nextTitle = payload.nextTitle || '';
+    state.playing = false;
     idle.style.display = 'none';
     renderLyrics((payload.lyrics && payload.lyrics.lines) || []);
-    if (payload.video) mv.src = payload.video;
+    if (payload.video) {
+      mv.src = payload.video;
+      try { mv.load(); } catch (e) {}
+      mv.addEventListener('loadedmetadata', () => {
+        try { mv.currentTime = karaoke.currentTime || Number(payload.position || 0); } catch (e) {}
+        if (state.playing) mv.play().catch(() => {});
+      }, {once: true});
+    } else {
+      mv.removeAttribute('src');
+    }
     karaoke.src = payload.karaoke || '';
     guide.src = payload.guide || '';
     guide.volume = Math.max(0, Math.min(1, payload.guideVol ?? 0));
     guide.muted = !payload.guide;
     const position = Number(payload.position || 0);
     const start = () => {
-      try { mv.currentTime = position; karaoke.currentTime = position; guide.currentTime = position; } catch (e) {}
+      try { karaoke.currentTime = position; guide.currentTime = position; } catch (e) {}
       if (payload.playing !== false) playAll();
     };
     if (karaoke.readyState >= 1) start(); else karaoke.addEventListener('loadedmetadata', start, { once: true });
+    // Do not let a slow video prevent audio from starting forever.
+    setTimeout(() => { if (!state.playing && karaoke.readyState >= 1 && payload.playing !== false) start(); }, 2500);
   }
 
   function handle(payload) {
@@ -245,6 +257,7 @@
 
   karaoke.addEventListener('ended', () => showReview({songId: state.songId, title: state.title, singer: state.singer, nextTitle: state.nextTitle}));
   karaoke.addEventListener('error', () => send({ type: 'error', songId: state.songId, message: 'audio error' }));
+  mv.addEventListener('error', () => send({ type: 'video_error', songId: state.songId, message: 'video error' }));
 
   try {
     const receiver = cast.receiver.CastReceiverManager.getInstance();

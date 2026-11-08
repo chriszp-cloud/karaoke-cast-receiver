@@ -10,8 +10,19 @@
   video { width: 100%; height: 100%; object-fit: contain; }
   #idle { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #fff; gap: 14px; }
   #idle h1 { font-size: 42px; font-weight: 800; margin: 0; letter-spacing: 4px; }
-  #idle p { font-size: 20px; opacity: .6; margin: 0; }
-  #lyrics { position: absolute; left: 0; right: 0; bottom: 0; height: 40%; pointer-events: none; }
+  #review { position: absolute; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: center; text-align: center; background: radial-gradient(circle at 50% 38%, #342047 0%, #100d1c 52%, #08080f 100%); color: #fff; z-index: 5; padding: 5vh 8vw; box-sizing: border-box; }
+  #review.show { display: flex; }
+  #review .eyebrow { color: #ff9db4; font-size: clamp(18px, 2.4vw, 32px); letter-spacing: 3px; font-weight: 700; }
+  #review .singer { margin-top: 20px; font-size: clamp(28px, 4vw, 54px); font-weight: 800; }
+  #review .song { margin-top: 5px; color: #c8c1d2; font-size: clamp(20px, 2.6vw, 34px); }
+  #review .comment { margin-top: 72px; color: #ffe281; font-size: clamp(36px, 6vw, 82px); font-weight: 800; text-shadow: 0 3px 18px rgba(255,210,90,.2); }
+  #review .subcomment { margin-top: 14px; color: #f5f1f7; font-size: clamp(20px, 2.8vw, 38px); }
+  #review .countdown { margin-top: 62px; color: #ff5f8f; font-size: clamp(48px, 7vw, 90px); font-weight: 800; line-height: 1; }
+  #review .next { margin-top: 20px; color: #aaa1b7; font-size: clamp(16px, 2vw, 25px); }
+  #review .dots { display: flex; gap: 12px; margin-top: 24px; }
+  #review .dots i { width: 10px; height: 10px; border-radius: 50%; background: #5c4264; }
+  #review .dots i.on { background: #ff5f8f; }
+
   .ly { position: absolute; left: 0; right: 0; display: none; text-align: center; font-weight: 800; line-height: 1.35;
         color: #fff; text-shadow: 0 2px 8px rgba(0,0,0,.95), 0 0 3px #000; }
   .ly.cur { display: block; top: 48%; font-size: 52px; }
@@ -31,6 +42,7 @@
   <div id="lyrics"></div>
   <div id="dbg" style="position:absolute;left:10px;bottom:8px;font:12px/1.4 monospace;color:rgba(255,255,255,.55);white-space:pre;pointer-events:none"></div>
   <div id="idle"><h1>家庭 KTV</h1><p>從 iPad 選歌，按「播放到電視」</p></div>
+  <div id="review"><div class="eyebrow">演唱完成</div><div id="reviewSinger" class="singer"></div><div id="reviewSong" class="song"></div><div id="reviewComment" class="comment"></div><div id="reviewSub" class="subcomment"></div><div id="reviewCountdown" class="countdown">5</div><div id="reviewNext" class="next"></div><div id="reviewDots" class="dots"><i></i><i></i><i></i><i></i><i></i></div></div>
 </div>
 <audio id="karaoke" preload="auto"></audio>
 <audio id="guide" preload="auto" muted></audio>
@@ -44,8 +56,48 @@
   const guide = document.getElementById('guide');
   const lyricsEl = document.getElementById('lyrics');
   const idle = document.getElementById('idle');
+  const review = document.getElementById('review');
+  const reviewSinger = document.getElementById('reviewSinger');
+  const reviewSong = document.getElementById('reviewSong');
+  const reviewComment = document.getElementById('reviewComment');
+  const reviewSub = document.getElementById('reviewSub');
+  const reviewCountdown = document.getElementById('reviewCountdown');
+  const reviewNext = document.getElementById('reviewNext');
+  const reviewDots = [...document.querySelectorAll('#reviewDots i')];
 
-  let state = { lines: [], lastIndex: -2, playing: false, songId: null };
+  let reviewTimer = null;
+  const reviewOpeners = ['這首歌完成得很漂亮！', '一首歌，唱出了自己的味道！', '舞台時間結束，掌聲送給你！', '這次演唱留下了很棒的記憶！', '完成一首歌，就是一次精彩演出！', '你的歌聲讓這首歌有了新的故事！', '這首歌被你唱得很有個性！', '唱到最後，整個氣氛都到位了！'];
+  const reviewSubs = ['謝謝你的演出，下一首馬上接棒。', '這一首值得好好記住，繼續享受今晚的歌聲。', '每一次開口都是自己的舞台，唱得很棒。', '完成就是最棒的收尾，準備迎接下一首。', '你的演唱讓今晚的歌單更有溫度。', '把喜歡的歌唱出來，就是最好的表演。'];
+  function varied(list, key) {
+    const used = JSON.parse(localStorage.getItem(key) || '[]');
+    const pool = list.filter(x => !used.includes(x));
+    const chosen = (pool.length ? pool : list)[Math.floor(Math.random() * (pool.length ? pool.length : list.length))];
+    localStorage.setItem(key, JSON.stringify([...used.slice(-5), chosen]));
+    return chosen;
+  }
+  function showReview(payload) {
+    clearInterval(reviewTimer);
+    reviewSinger.textContent = payload.singer || '演唱者';
+    reviewSong.textContent = payload.title ? `《${payload.title}》` : '';
+    reviewComment.textContent = varied(reviewOpeners, 'ktvReviewOpeners');
+    reviewSub.textContent = varied(reviewSubs, 'ktvReviewSubs');
+    reviewNext.textContent = payload.nextTitle ? `下一首：${payload.nextTitle}` : '下一首即將開始';
+    let n = 5;
+    reviewCountdown.textContent = n;
+    reviewDots.forEach((dot, i) => dot.classList.toggle('on', i === 0));
+    review.classList.add('show');
+    reviewTimer = setInterval(() => {
+      n -= 1;
+      reviewCountdown.textContent = Math.max(0, n);
+      reviewDots.forEach((dot, i) => dot.classList.toggle('on', i <= 5 - n - 1));
+      if (n <= 0) {
+        clearInterval(reviewTimer);
+        review.classList.remove('show');
+        send({ type: 'advance', songId: payload.songId });
+      }
+    }, 1000);
+  }
+
   let bus = null;
 
   function esc(s) { return String(s || '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
@@ -99,6 +151,18 @@
   }
   requestAnimationFrame(tick);
 
+  function syncTracks() {
+    if (karaoke.paused || !Number.isFinite(karaoke.currentTime)) return;
+    const master = karaoke.currentTime;
+    if (mv.readyState >= 1 && Math.abs((mv.currentTime || 0) - master) > 0.18) {
+      try { mv.currentTime = master; } catch (e) {}
+    }
+    if (guide.src && guide.readyState >= 1 && Math.abs((guide.currentTime || 0) - master) > 0.12) {
+      try { guide.currentTime = master; } catch (e) {}
+    }
+  }
+  setInterval(syncTracks, 300);
+
   function send(payload) {
     try { if (bus) bus.send(payload); } catch (e) {}
   }
@@ -113,7 +177,12 @@
   }
 
   function load(payload) {
+    clearInterval(reviewTimer);
+    review.classList.remove('show');
     state.songId = payload.songId || null;
+    state.title = payload.title || '';
+    state.singer = payload.singer || '';
+    state.nextTitle = payload.nextTitle || '';
     idle.style.display = 'none';
     renderLyrics((payload.lyrics && payload.lyrics.lines) || []);
     if (payload.video) mv.src = payload.video;
@@ -174,7 +243,7 @@
   }
   setInterval(debugLine, 1000);
 
-  karaoke.addEventListener('ended', () => send({ type: 'ended', songId: state.songId }));
+  karaoke.addEventListener('ended', () => showReview({songId: state.songId, title: state.title, singer: state.singer, nextTitle: state.nextTitle}));
   karaoke.addEventListener('error', () => send({ type: 'error', songId: state.songId, message: 'audio error' }));
 
   try {

@@ -65,6 +65,8 @@
   const reviewNext = document.getElementById('reviewNext');
   const reviewDots = [...document.querySelectorAll('#reviewDots i')];
 
+  const state = { lines: [], lastIndex: -1, playing: false, songId: null, title: '', singer: '', nextTitle: '' };
+
   let reviewTimer = null;
   const reviewOpeners = ['這首歌完成得很漂亮！', '一首歌，唱出了自己的味道！', '舞台時間結束，掌聲送給你！', '這次演唱留下了很棒的記憶！', '完成一首歌，就是一次精彩演出！', '你的歌聲讓這首歌有了新的故事！', '這首歌被你唱得很有個性！', '唱到最後，整個氣氛都到位了！'];
   const reviewSubs = ['謝謝你的演出，下一首馬上接棒。', '這一首值得好好記住，繼續享受今晚的歌聲。', '每一次開口都是自己的舞台，唱得很棒。', '完成就是最棒的收尾，準備迎接下一首。', '你的演唱讓今晚的歌單更有溫度。', '把喜歡的歌唱出來，就是最好的表演。'];
